@@ -8,12 +8,14 @@
 
   // ================= 設定 =================
   const DEFAULTS = {
-    saveMode: 'each', quality: '1', location: true, grid: false, level: false, mirror: false,
+    saveMode: 'each', quality: '0.95', location: true, grid: false, level: false, mirror: false,
     videoRes: '1080', videoFps: '30', audio: true,
     aspect: '4:3', timer: 0, filter: 'none', flash: false, mode: 'photo', facing: 'back', lens: 'wide',
   };
   const S = Object.assign({}, DEFAULTS, (() => { try { return JSON.parse(localStorage.getItem('silentcam.settings')) || {}; } catch { return {}; } })());
   const saveSettings = () => { try { localStorage.setItem('silentcam.settings', JSON.stringify(S)); } catch {} };
+  // v2: 画質の初期値を JPEG 95% に変更（旧版で自動保存された 100% も置き換える）
+  if ((S.v || 1) < 2) { if (S.quality === '1') S.quality = '0.95'; S.v = 2; saveSettings(); }
 
   // ================= フィルタ =================
   const FILTERS = [
