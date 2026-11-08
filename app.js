@@ -8,7 +8,7 @@
 
   // ================= 設定 =================
   const DEFAULTS = {
-    saveMode: 'each', quality: '0.95', location: true, grid: false, level: false, mirror: false,
+    saveMode: 'each', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
     videoRes: '1080', videoFps: '30', audio: true,
     aspect: '4:3', timer: 0, filter: 'none', flash: false, mode: 'photo', facing: 'back', lens: 'wide',
   };
@@ -564,6 +564,23 @@
     const c = $('#galleryCount'); c.hidden = !unsaved; c.textContent = unsaved;
   }
 
+  const IS_ANDROID = /Android/i.test(navigator.userAgent);
+  const canShareFiles = () => {
+    try { return !!(navigator.canShare && navigator.canShare({ files: [new File([''], 'a.jpg', { type: 'image/jpeg' })] })); } catch { return false; }
+  };
+  // 保存方法：auto は iPhone=共有シート、Android/PC=ダウンロード
+  function saveVia() {
+    const t = S.saveTarget || 'auto';
+    if (t === 'share' && canShareFiles()) return 'share';
+    if (t === 'download') return 'download';
+    return !IS_ANDROID && canShareFiles() ? 'share' : 'download';
+  }
+  function updateSaveLabels() {
+    const label = saveVia() === 'share' ? '写真に保存' : '端末に保存';
+    $('#toastSave').textContent = label; $('#vSave').textContent = label;
+    $('#gSave').dataset.label = label;
+  }
+
   async function shareItems(list) {
     const files = [];
     for (const it of list) {
@@ -571,14 +588,17 @@
       if (b) files.push(new File([b], it.name, { type: it.mime, lastModified: it.created }));
     }
     if (!files.length) return false;
-    if (navigator.canShare && navigator.canShare({ files })) {
+    if (saveVia() === 'share') {
       await navigator.share({ files });
     } else {
-      // 共有非対応（PCなど）：ダウンロード
-      for (const f of files) {
+      // Android・PC：直接ダウンロード（Androidは「Download」フォルダ → ギャラリー/Googleフォトに表示）
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
         const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name;
-        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        if (i < files.length - 1) await sleep(350); // 連続ダウンロードがブロックされないよう間隔を空ける
       }
+      showToast(null, files.length > 1 ? `${files.length}件を端末に保存しました` : '端末に保存しました');
     }
     for (const it of list) { it.saved = true; await DB.put(it); }
     updateGalleryButton(); if (!$('#gallery').hidden) renderGallery();
@@ -588,7 +608,7 @@
   // 撮影直後の保存：まず共有シートを自動で開き、ブラウザに拒否されたらボタンを出す
   async function offerSave(list, tryAuto) {
     if (tryAuto) {
-      try { await shareItems(list); hideToast(); return; } catch (e) { if (e && e.name === 'AbortError') { hideToast(); return; } }
+      try { await shareItems(list); if (saveVia() === 'share') hideToast(); return; } catch (e) { if (e && e.name === 'AbortError') { hideToast(); return; } }
     }
     showToast(list, list.length > 1 ? `${list.length}件 撮影しました` : list[0].type === 'video' ? '録画しました' : '撮影しました');
   }
@@ -607,7 +627,7 @@
   function hideToast() { $('#toast').hidden = true; toastList = null; }
   $('#toastSave').onclick = async () => {
     const l = toastList; if (!l) return;
-    try { await shareItems(l); hideToast(); } catch (e) { if (e.name !== 'AbortError') showError(e); }
+    try { await shareItems(l); if (saveVia() === 'share') hideToast(); } catch (e) { if (e.name !== 'AbortError') showError(e); }
   };
   $('#toastClose').onclick = hideToast;
 
@@ -637,7 +657,8 @@
     $('#gAll').hidden = !selecting; $('#gSave').hidden = !selecting; $('#gDelete').hidden = !selecting;
     $('#gDeleteSaved').hidden = selecting || !items.some((i) => i.saved);
     $('#gSave').disabled = $('#gDelete').disabled = !selected.size;
-    $('#gSave').textContent = selected.size ? `写真に保存 (${selected.size})` : '写真に保存';
+    const gl = $('#gSave').dataset.label || '写真に保存';
+    $('#gSave').textContent = selected.size ? `${gl} (${selected.size})` : gl;
   }
   $('#gSelect').onclick = () => { selecting = !selecting; selected.clear(); renderGallery(); };
   $('#gAll').onclick = () => { if (selected.size === items.length) selected.clear(); else items.forEach((i) => selected.add(i.id)); renderGallery(); };
@@ -694,10 +715,10 @@
 
   // ================= 設定画面 =================
   function bindSettings() {
-    const sel = { setSaveMode: 'saveMode', setQuality: 'quality', setVideoRes: 'videoRes', setVideoFps: 'videoFps' };
+    const sel = { setSaveMode: 'saveMode', setSaveTarget: 'saveTarget', setQuality: 'quality', setVideoRes: 'videoRes', setVideoFps: 'videoFps' };
     for (const [id, key] of Object.entries(sel)) {
       const el = $('#' + id); el.value = S[key];
-      el.onchange = () => { S[key] = el.value; saveSettings(); if ((key === 'videoRes' || key === 'videoFps') && S.mode === 'video') restartSoon(); };
+      el.onchange = () => { S[key] = el.value; saveSettings(); if (key === 'saveTarget') updateSaveLabels(); if ((key === 'videoRes' || key === 'videoFps') && S.mode === 'video') restartSoon(); };
     }
     const chk = { setLocation: 'location', setGrid: 'grid', setLevel: 'level', setMirror: 'mirror', setAudio: 'audio' };
     for (const [id, key] of Object.entries(chk)) {
@@ -795,7 +816,7 @@
   $("#btnStart").onclick = () => boot(false);
 
   (async () => {
-    bindSettings(); updateTopbar();
+    bindSettings(); updateTopbar(); updateSaveLabels();
     try { items = (await DB.all()).sort((a, b) => b.id - a.id); updateGalleryButton(); } catch (e) { console.warn(e); }
     try {
       const p = navigator.permissions && await navigator.permissions.query({ name: 'camera' });

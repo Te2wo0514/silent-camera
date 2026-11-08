@@ -81,7 +81,7 @@
     <div class="startInner">
       <img src="icons/icon-192.png" alt="" width="96" height="96">
       <h1>無音カメラ</h1>
-      <p id="startMsg">シャッター音なしで撮影できます。<br>撮影したものは「写真に保存」から写真アプリに保存します。</p>
+      <p id="startMsg">シャッター音なしで撮影できます。<br>撮影したものは写真アプリ（Androidは端末）に保存します。</p>
       <button id="btnStart">カメラを起動</button>
       <p class="note">他人を無断で撮影しないでください。</p>
     </div>
@@ -98,6 +98,14 @@
           <option value="batch">ギャラリーにためて後で保存</option>
         </select>
       </label>
+      <label class="row">保存先
+        <select id="setSaveTarget">
+          <option value="auto">自動（iPhone：写真アプリ／Android：端末）</option>
+          <option value="share">共有メニュー経由</option>
+          <option value="download">端末に直接ダウンロード</option>
+        </select>
+      </label>
+      <p class="hint">Androidでは「Download」フォルダに保存され、ギャラリーやGoogleフォトの「デバイス内の写真」に表示されます。</p>
       <label class="row">画質・形式
         <select id="setQuality">
           <option value="1">JPEG 最高 (100%)</option>
