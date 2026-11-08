@@ -5,6 +5,11 @@
   const $$ = (s) => [...document.querySelectorAll(s)];
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+  // Safari 16.4+ の Audio Session API：'ambient' なら他アプリの音声を止めずに共存する
+  function setAudioSession(type) {
+    try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch {}
+  }
+  setAudioSession('ambient');
 
   // ================= 設定 =================
   const DEFAULTS = {
@@ -161,17 +166,16 @@
     }
     const facing = { facingMode: S.facing === 'front' ? 'user' : 'environment' };
     const devId = pickDeviceId();
-    const wantAudio = isVideo && S.audio;
+    // マイクは録画中だけ使う（他のアプリの音楽などを止めないため）
+    setAudioSession('ambient');
     const attempts = [];
-    if (devId) attempts.push({ video: { ...v, deviceId: { exact: devId } }, audio: wantAudio });
-    attempts.push({ video: { ...v, ...facing }, audio: wantAudio });
-    if (wantAudio) attempts.push({ video: { ...v, ...facing }, audio: false });
+    if (devId) attempts.push({ video: { ...v, deviceId: { exact: devId } }, audio: false });
+    attempts.push({ video: { ...v, ...facing }, audio: false });
     let err;
     for (const c of attempts) {
-      try { stream = await navigator.mediaDevices.getUserMedia(c); break; } catch (e) { err = e; if (e.name === 'NotAllowedError' && !c.audio) break; }
+      try { stream = await navigator.mediaDevices.getUserMedia(c); break; } catch (e) { err = e; if (e.name === 'NotAllowedError') break; }
     }
     if (!stream) throw err;
-    if (wantAudio && !stream.getAudioTracks().length) showToast(null, 'マイクが使えないため音声なしで録画します');
     track = stream.getVideoTracks()[0];
 
     // 写真モードは取得可能な最大解像度まで引き上げる
@@ -494,18 +498,34 @@
     const base = hevc ? (k4 ? 30e6 : 10e6) : (k4 ? 40e6 : 16e6); // HEVCは同等画質を低ビットレートで
     return fps60 ? base * 1.5 : base;
   }
+  let micStream = null, recStarting = false;
+  function releaseMic() {
+    if (micStream) micStream.getTracks().forEach((t) => t.stop());
+    micStream = null;
+    setAudioSession('ambient');
+  }
   async function toggleRecording() {
     if (recorder) { recorder.stop(); return; }
     if (!window.MediaRecorder) { showError(new Error('このブラウザは録画に対応していません')); return; }
-    if (!stream) return;
+    if (!stream || recStarting) return;
+    recStarting = true;
+    // 音声ありの場合だけ、録画開始時にマイクを起動（この間は他アプリの音声が止まる：純正カメラと同じ挙動）
+    micStream = null;
+    if (S.audio) {
+      setAudioSession('play-and-record');
+      try { micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false }); }
+      catch { setAudioSession('ambient'); showToast(null, 'マイクが使えないため音声なしで録画します'); }
+    }
+    const recStream = new MediaStream([...stream.getVideoTracks(), ...(micStream ? micStream.getAudioTracks() : [])]);
     const cands = supportedMimes(); if (!cands.length) cands.push('');
     let mime = '';
     for (const m of cands) {
       const opts = { videoBitsPerSecond: videoBitrate(isHevc(m)), audioBitsPerSecond: 160e3 };
       if (m) opts.mimeType = m;
-      try { recorder = new MediaRecorder(stream, opts); mime = m; break; } catch (e) { recorder = null; }
+      try { recorder = new MediaRecorder(recStream, opts); mime = m; break; } catch (e) { recorder = null; }
     }
-    if (!recorder) { showError(new Error('録画を開始できませんでした')); return; }
+    recStarting = false;
+    if (!recorder) { releaseMic(); showError(new Error('録画を開始できませんでした')); return; }
     recChunks = [];
     const vw = video.videoWidth, vh = video.videoHeight;
     const thumbP = makeThumb(video, vw, vh, isFront());
@@ -514,7 +534,7 @@
     recorder.onstop = async () => {
       const type = (recorder.mimeType || mime || 'video/mp4').split(';')[0];
       const blob = new Blob(recChunks, { type }); recChunks = [];
-      recorder = null; clearInterval(recTimer); $('#recTime').hidden = true;
+      recorder = null; releaseMic(); clearInterval(recTimer); $('#recTime').hidden = true;
       shutter.classList.remove('rec'); setRecordingUI(false);
       if (!blob.size) { showError(new Error('録画データが空でした')); return; }
       const item = await storeItem('video', { blob, thumb: await thumbP, date, mime: type, ext: type.includes('webm') ? 'webm' : 'mp4', w: vw, h: vh });
@@ -728,7 +748,6 @@
         if (key === 'location') { if (S.location) startGeo(); else { stopGeo(); lastGeo = null; } }
         if (key === 'grid') updateTopbar();
         if (key === 'level') { if (S.level) enableLevel(); else disableLevel(); }
-        if (key === 'audio' && S.mode === 'video') restartSoon();
       };
     }
   }
