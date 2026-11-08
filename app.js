@@ -7,7 +7,7 @@
   const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
   // Safari 16.4+ の Audio Session API：'ambient' なら他アプリの音声を止めずに共存する
   function setAudioSession(type) {
-    try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch {}
+    try { if (navigator.audioSession) navigator.audioSession.type = type; } catch {}
   }
   setAudioSession('ambient');
 
@@ -194,6 +194,8 @@
     video.srcObject = stream;
     await new Promise((r) => { if (video.readyState >= 1 && video.videoWidth) r(); else video.onloadedmetadata = () => r(); });
     try { await video.play(); } catch {}
+    // カメラ起動でWebKitが音声セッションを切り替えることがあるため、起動後にも共存モードを再設定
+    if (S.mode === 'photo' || !recorder) { setAudioSession('ambient'); setTimeout(() => { if (!recorder) setAudioSession('ambient'); }, 600); }
     if (!devices.length || devices.every((d) => !d.label)) await refreshDevices();
 
     track.addEventListener('ended', () => { if (document.visibilityState === 'visible') restartSoon(); });
@@ -761,6 +763,7 @@
       `色空間: ${P3 ? 'Display P3' : canvas ? 'sRGB' : '撮影時に判定'}`,
       `フィルタ処理: ${CTX_FILTER ? 'GPU' : 'ソフトウェア'}`,
       `録画形式: ${codecLabel(pickMime())}`,
+      `音声セッション: ${navigator.audioSession ? `${navigator.audioSession.type} / ${navigator.audioSession.state || '-'}` : '非対応'}`,
     ];
     $('#infoText').innerHTML = lines.map((l) => l.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('<br>');
   }
