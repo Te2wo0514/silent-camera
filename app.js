@@ -469,18 +469,41 @@
   shutter.addEventListener('click', () => { if (S.mode === 'video') toggleRecording(); });
 
   // ================= 録画 =================
-  function pickMime() {
-    const list = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
-    return (window.MediaRecorder && MediaRecorder.isTypeSupported) ? list.find((t) => MediaRecorder.isTypeSupported(t)) || '' : '';
+  // 対応端末ではHEVC(H.265)を優先し、非対応ならH.264
+  const MIME_CANDIDATES = [
+    'video/mp4;codecs="hvc1,mp4a.40.2"', 'video/mp4;codecs=hvc1', 'video/mp4;codecs=hev1',
+    'video/mp4;codecs="avc1,mp4a.40.2"', 'video/mp4;codecs=avc1', 'video/mp4',
+    'video/webm;codecs=vp9,opus', 'video/webm',
+  ];
+  const isHevc = (m) => /hvc1|hev1/.test(m || '');
+  function supportedMimes() {
+    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return [];
+    return MIME_CANDIDATES.filter((t) => { try { return MediaRecorder.isTypeSupported(t); } catch { return false; } });
+  }
+  const pickMime = () => supportedMimes()[0] || '';
+  function codecLabel(m) {
+    if (!m) return '非対応';
+    if (isHevc(m)) return 'HEVC (H.265) / MP4';
+    if (/avc1|mp4/.test(m)) return 'H.264 / MP4';
+    return m;
+  }
+  function videoBitrate(hevc) {
+    const k4 = S.videoRes === '4k', fps60 = +S.videoFps >= 60;
+    const base = hevc ? (k4 ? 30e6 : 10e6) : (k4 ? 40e6 : 16e6); // HEVCは同等画質を低ビットレートで
+    return fps60 ? base * 1.5 : base;
   }
   async function toggleRecording() {
     if (recorder) { recorder.stop(); return; }
     if (!window.MediaRecorder) { showError(new Error('このブラウザは録画に対応していません')); return; }
     if (!stream) return;
-    const mime = pickMime();
-    const opts = { videoBitsPerSecond: S.videoRes === '4k' ? 40e6 : 16e6, audioBitsPerSecond: 160e3 };
-    if (mime) opts.mimeType = mime;
-    try { recorder = new MediaRecorder(stream, opts); } catch (e) { showError(e); return; }
+    const cands = supportedMimes(); if (!cands.length) cands.push('');
+    let mime = '';
+    for (const m of cands) {
+      const opts = { videoBitsPerSecond: videoBitrate(isHevc(m)), audioBitsPerSecond: 160e3 };
+      if (m) opts.mimeType = m;
+      try { recorder = new MediaRecorder(stream, opts); mime = m; break; } catch (e) { recorder = null; }
+    }
+    if (!recorder) { showError(new Error('録画を開始できませんでした')); return; }
     recChunks = [];
     const vw = video.videoWidth, vh = video.videoHeight;
     const thumbP = makeThumb(video, vw, vh, isFront());
@@ -695,7 +718,7 @@
       `ライト: ${caps.torch ? '対応' : isFront() ? '画面フラッシュ' : '非対応'}`,
       `色空間: ${P3 ? 'Display P3' : canvas ? 'sRGB' : '撮影時に判定'}`,
       `フィルタ処理: ${CTX_FILTER ? 'GPU' : 'ソフトウェア'}`,
-      `録画形式: ${pickMime() || '非対応'}`,
+      `録画形式: ${codecLabel(pickMime())}`,
     ];
     $('#infoText').innerHTML = lines.map((l) => l.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('<br>');
   }
