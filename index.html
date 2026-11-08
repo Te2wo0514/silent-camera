@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="無音カメラ">
+<meta name="theme-color" content="#000000">
+<title>無音カメラ</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <!-- 上部バー -->
+  <header id="topbar">
+    <button id="btnFlash" class="tb" aria-label="フラッシュ">
+      <svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><span id="flashLabel">オフ</span>
+    </button>
+    <button id="btnTimer" class="tb" aria-label="タイマー">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke-width="2"/><path d="M12 9v4l3 2M9 2h6" fill="none" stroke-width="2" stroke-linecap="round"/></svg><span id="timerLabel">オフ</span>
+    </button>
+    <button id="btnAspect" class="tb" aria-label="縦横比"><span id="aspectLabel">4:3</span></button>
+    <button id="btnFilter" class="tb" aria-label="フィルタ">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="10" r="6" fill="none" stroke-width="2"/><circle cx="15" cy="10" r="6" fill="none" stroke-width="2"/><circle cx="12" cy="15" r="6" fill="none" stroke-width="2"/></svg>
+    </button>
+    <span id="locBadge" class="badge off" title="位置情報">
+      <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+    </span>
+    <button id="btnSettings" class="tb" aria-label="設定">
+      <svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.9c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+    </button>
+  </header>
+
+  <!-- ファインダー -->
+  <main id="stage">
+    <div id="finder">
+      <video id="video" playsinline muted autoplay></video>
+      <div id="grid" hidden><i></i><i></i><i></i><i></i></div>
+      <div id="level" hidden><div id="levelLine"></div></div>
+      <div id="countdown" hidden></div>
+      <div id="recTime" hidden>00:00</div>
+      <div id="burstCount" hidden></div>
+      <div id="blink"></div>
+      <div id="zoomBadge" hidden>1.0×</div>
+    </div>
+    <div id="screenFlash"></div>
+  </main>
+
+  <!-- 下部 -->
+  <footer id="bottom">
+    <div id="filterStrip" hidden></div>
+    <div id="lensRow"></div>
+    <div id="modeRow">
+      <button data-mode="video">ビデオ</button>
+      <button data-mode="photo" class="on">写真</button>
+    </div>
+    <div id="controls">
+      <button id="btnGallery" aria-label="ギャラリー"><img id="lastThumb" alt=""><span id="galleryCount" hidden></span></button>
+      <button id="shutter" aria-label="シャッター"><span></span></button>
+      <button id="btnSwitch" aria-label="カメラ切替">
+        <svg viewBox="0 0 24 24"><path d="M20 7h-3l-2-3H9L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" fill="none" stroke-width="1.8"/><path d="M9 13a3 3 0 0 1 5.2-2M15 13a3 3 0 0 1-5.2 2M14 9.5l.4 1.6-1.6.3M10 16.5l-.4-1.6 1.6-.3" fill="none" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </footer>
+
+  <!-- 保存トースト -->
+  <div id="toast" hidden>
+    <img id="toastThumb" alt="">
+    <span id="toastText">撮影しました</span>
+    <button id="toastSave">写真に保存</button>
+    <button id="toastClose" aria-label="閉じる">×</button>
+  </div>
+
+  <!-- 起動画面 -->
+  <div id="startScreen">
+    <div class="startInner">
+      <img src="icons/icon-192.png" alt="" width="96" height="96">
+      <h1>無音カメラ</h1>
+      <p id="startMsg">シャッター音なしで撮影できます。<br>撮影したものは「写真に保存」から写真アプリに保存します。</p>
+      <button id="btnStart">カメラを起動</button>
+      <p class="note">他人を無断で撮影しないでください。</p>
+    </div>
+  </div>
+
+  <!-- 設定 -->
+  <section id="settings" class="sheet" hidden>
+    <div class="sheetHead"><h2>設定</h2><button class="close" data-close="settings">完了</button></div>
+    <div class="sheetBody">
+      <h3>保存</h3>
+      <label class="row">保存方法
+        <select id="setSaveMode">
+          <option value="each">撮影ごとに保存</option>
+          <option value="batch">ギャラリーにためて後で保存</option>
+        </select>
+      </label>
+      <label class="row">画質・形式
+        <select id="setQuality">
+          <option value="1">JPEG 最高 (100%)</option>
+          <option value="0.95">JPEG 高 (95%)</option>
+          <option value="0.9">JPEG 標準 (90%)</option>
+          <option value="png">PNG 劣化なし（位置情報なし・大容量）</option>
+        </select>
+      </label>
+      <label class="row">位置情報を付ける<input type="checkbox" id="setLocation"></label>
+
+      <h3>撮影</h3>
+      <label class="row">グリッド<input type="checkbox" id="setGrid"></label>
+      <label class="row">水平器<input type="checkbox" id="setLevel"></label>
+      <label class="row">前面カメラを反転<input type="checkbox" id="setMirror"></label>
+      <p class="hint">シャッター長押しで連写します。</p>
+
+      <h3>ビデオ</h3>
+      <label class="row">解像度
+        <select id="setVideoRes"><option value="1080">1080p HD</option><option value="4k">4K</option></select>
+      </label>
+      <label class="row">フレームレート
+        <select id="setVideoFps"><option value="30">30 fps</option><option value="60">60 fps</option></select>
+      </label>
+      <label class="row">音声を録音<input type="checkbox" id="setAudio"></label>
+
+      <h3>情報</h3>
+      <p class="hint" id="infoText">—</p>
+    </div>
+  </section>
+
+  <!-- ギャラリー -->
+  <section id="gallery" class="sheet" hidden>
+    <div class="sheetHead">
+      <button id="gSelect" class="link">選択</button>
+      <h2>ギャラリー</h2>
+      <button class="close" data-close="gallery">閉じる</button>
+    </div>
+    <p class="hint pad">写真アプリへ保存すると ✓ が付きます。保存済みのものは削除して容量を空けてください。</p>
+    <div id="gGrid"></div>
+    <div id="gBar">
+      <button id="gAll" class="link">すべて選択</button>
+      <button id="gSave" class="primary">写真に保存</button>
+      <button id="gDelete" class="danger">削除</button>
+      <button id="gDeleteSaved" class="link">保存済みを削除</button>
+    </div>
+  </section>
+
+  <!-- ビューア -->
+  <section id="viewer" hidden>
+    <div class="sheetHead"><span></span><h2 id="vTitle"></h2><button class="close" data-close="viewer">閉じる</button></div>
+    <div id="vBody"></div>
+    <div id="vBar">
+      <button id="vDelete" class="danger">削除</button>
+      <button id="vSave" class="primary">写真に保存</button>
+    </div>
+  </section>
+</div>
+<script src="exif.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
