@@ -11,10 +11,10 @@
   }
   setAudioSession('ambient');
 
-  const APP_VERSION = 24;
+  const APP_VERSION = 25;
   // ================= 設定 =================
   const DEFAULTS = {
-    saveMode: 'batch', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
+    saveMode: 'batch', saveTarget: 'auto', autoDelete: true, quality: '0.95', location: true, grid: false, level: false, mirror: false,
     videoRes: '1080', videoFps: '30', audio: true,
     aspect: '4:3', timer: 0, filter: 'none', flash: false, mode: 'photo', facing: 'back', lens: 'wide',
   };
@@ -219,6 +219,7 @@
     caps = (track.getCapabilities && track.getCapabilities()) || {};
     hwZoom = !!(caps.zoom && caps.zoom.max > caps.zoom.min);
     zoom = hwZoom ? Math.max(1, caps.zoom.min) : 1;
+    $('#focusBox').hidden = true; ev = 0;
 
     video.srcObject = stream;
     await new Promise((r) => { if (video.readyState >= 1 && video.videoWidth) r(); else video.onloadedmetadata = () => r(); });
@@ -285,7 +286,7 @@
     const m = isFront() ? -1 : 1; const z = hwZoom ? 1 : zoom;
     const vr = videoRot();
     video.style.transform = `${vr ? `translate(-50%, -50%) rotate(${vr}deg) ` : ''}scale(${m * z}, ${z})`;
-    video.style.filter = S.mode === 'photo' ? filterCss(S.filter) : '';
+    video.style.filter = S.mode === 'photo' ? photoFilterCss() : '';
     const badge = $('#zoomBadge');
     const shown = hwZoom ? zoom : zoom;
     badge.textContent = `${shown.toFixed(1)}×`;
@@ -295,6 +296,92 @@
   // 端末のズーム上限（ハード対応なら端末の上限、なければ切り抜きで10×まで）
   const DIGITAL_MAX = 8;
   const maxZoom = () => (hwZoom ? Math.min(caps.zoom.max, 15) : DIGITAL_MAX);
+  // ================= 8・9: タップでピント／明るさ =================
+  let ev = 0, focusHideTimer = 0, evRaf = 0;
+  const hwEV = () => !!(caps.exposureCompensation && caps.exposureCompensation.max > caps.exposureCompensation.min);
+  const hwFocus = () => !!(caps.focusMode && caps.focusMode.length);
+  // 明るさ：カメラが対応していればハードで、なければ写真だけソフト補正（録画には反映できない）
+  const evAvailable = () => hwEV() || S.mode === 'photo';
+  const evRange = () => (hwEV() ? [Math.max(caps.exposureCompensation.min, -2), Math.min(caps.exposureCompensation.max, 2)] : [-2, 2]);
+  const softBrightness = () => (!hwEV() && S.mode === 'photo' && ev ? Math.pow(2, ev * 0.6) : 1);
+  function photoFilterCss() {
+    const f = filterCss(S.filter); const b = softBrightness();
+    return b === 1 ? f : `${f ? f + ' ' : ''}brightness(${b.toFixed(3)})`;
+  }
+  function setEV(v) {
+    const [lo, hi] = evRange();
+    ev = Math.round(clamp(v, lo, hi) * 10) / 10;
+    const box = $('#focusBox');
+    box.querySelector('.sun').style.top = `${49 - (ev / Math.max(-lo, hi)) * 60}px`;
+    box.querySelector('.evVal').textContent = ev ? `${ev > 0 ? '+' : ''}${ev.toFixed(1)}` : '';
+    if (hwEV()) {
+      if (!evRaf) evRaf = requestAnimationFrame(async () => {
+        evRaf = 0; try { await track.applyConstraints({ advanced: [{ exposureCompensation: ev }] }); } catch {}
+      });
+    } else applyPreview();
+  }
+  function resetFocusEV() {
+    clearTimeout(focusHideTimer); $('#focusBox').hidden = true;
+    if (ev) { ev = 0; if (hwEV() && track) track.applyConstraints({ advanced: [{ exposureCompensation: 0 }] }).catch(() => {}); }
+  }
+  // ファインダー上の点（端末基準の座標）→ 映像フレーム上の正規化座標
+  function finderToVideo(ox, oy) {
+    const fw = finder.clientWidth, fh = finder.clientHeight, vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !fw) return null;
+    const u = ox / fw, v = oy / fh, vr = videoRot();
+    let x = u, y = v, bw = fw, bh = fh;
+    if (vr === 90) { x = v; y = 1 - u; bw = fh; bh = fw; } else if (vr === -90) { x = 1 - v; y = u; bw = fh; bh = fw; }
+    if (isFront()) x = 1 - x;
+    const sc = Math.max(bw / vw, bh / vh) * (hwZoom ? 1 : zoom);
+    return { x: clamp(((x - 0.5) * bw) / sc / vw + 0.5, 0, 1), y: clamp(((y - 0.5) * bh) / sc / vh + 0.5, 0, 1) };
+  }
+  // 画面上の指の位置 → ファインダー内の端末基準の座標（横持ち回転も考慮）
+  function finderPoint(cx, cy) {
+    const r = finder.getBoundingClientRect();
+    if (rotAngle === 90) return { x: r.bottom - cy, y: cx - r.left };
+    if (rotAngle === -90) return { x: cy - r.top, y: r.right - cx };
+    return { x: cx - r.left, y: cy - r.top };
+  }
+  function screenToDeviceDelta(dx, dy) {
+    if (rotAngle === 90) return { dx: -dy, dy: dx };
+    if (rotAngle === -90) return { dx: dy, dy: -dx };
+    return { dx, dy };
+  }
+  function keepFocusBox() { clearTimeout(focusHideTimer); focusHideTimer = setTimeout(() => { $('#focusBox').hidden = true; }, 3500); }
+  async function tapFocus(pt) {
+    const box = $('#focusBox');
+    box.style.left = `${pt.x}px`; box.style.top = `${pt.y}px`;
+    box.classList.toggle('noev', !evAvailable());
+    const sq = box.querySelector('.sq'); sq.style.animation = 'none'; void sq.offsetWidth; sq.style.animation = '';
+    box.hidden = false; setEV(0); keepFocusBox();
+    const p = finderToVideo(pt.x, pt.y);
+    if (!track || !p) return;
+    const adv = [{ pointsOfInterest: [p] }];
+    if (caps.focusMode && caps.focusMode.includes('single-shot')) adv[0].focusMode = 'single-shot';
+    try { await track.applyConstraints({ advanced: adv }); } catch {}
+  }
+  (() => {
+    const ptrs = new Set(); let pd = null;
+    finder.addEventListener('pointerdown', (e) => {
+      ptrs.add(e.pointerId);
+      if (ptrs.size > 1) { pd = null; return; }
+      pd = { x: e.clientX, y: e.clientY, mode: null, ev0: ev };
+    });
+    finder.addEventListener('pointermove', (e) => {
+      if (!pd || ptrs.size > 1) return;
+      const d = screenToDeviceDelta(e.clientX - pd.x, e.clientY - pd.y);
+      if (!pd.mode && Math.hypot(d.dx, d.dy) > 10) pd.mode = !$('#focusBox').hidden && evAvailable() && Math.abs(d.dy) > Math.abs(d.dx) ? 'ev' : 'none';
+      if (pd.mode === 'ev') { setEV(pd.ev0 - d.dy / 60); keepFocusBox(); }
+    });
+    const end = (e) => {
+      ptrs.delete(e.pointerId);
+      if (pd && !pd.mode && e.type === 'pointerup') tapFocus(finderPoint(pd.x, pd.y));
+      pd = null;
+    };
+    finder.addEventListener('pointerup', end);
+    finder.addEventListener('pointercancel', end);
+  })();
+
   let zoomPending = null, zoomRaf = 0;
   function setZoom(z) {
     if (hwZoom) {
@@ -508,7 +595,7 @@
     const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
     const w = Math.round(sw), h = Math.round(sh);
     const c = getCanvas(w, h);
-    const css = filterCss(S.filter);
+    const css = photoFilterCss();
     c.save();
     if (isFront() && S.mirror) { c.translate(w, 0); c.scale(-1, 1); }
     if (css && CTX_FILTER) c.filter = css;
@@ -663,15 +750,31 @@
       if (S.saveMode === 'each') offerSave([item], true);
     };
     recorder.start(1000);
-    recStart = Date.now();
+    recStart = Date.now(); recPausedAt = 0;
     shutter.classList.add('rec'); setRecordingUI(true);
     const rt = $('#recTime'); rt.hidden = false; rt.textContent = '00:00';
     recTimer = setInterval(() => {
-      const s = Math.floor((Date.now() - recStart) / 1000);
+      const s = Math.floor(((recPausedAt || Date.now()) - recStart) / 1000);
       rt.textContent = `${s >= 3600 ? Math.floor(s / 3600) + ':' : ''}${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
     }, 250);
   }
+  let recPausedAt = 0;
+  $('#btnPause').onclick = () => {
+    if (!recorder) return;
+    try {
+      if (recorder.state === 'recording') { recorder.pause(); recPausedAt = Date.now(); }
+      else if (recorder.state === 'paused') { recorder.resume(); recStart += Date.now() - recPausedAt; recPausedAt = 0; }
+    } catch (e) { showError(e); }
+    const paused = !!recPausedAt;
+    $('#btnPause').classList.toggle('paused', paused);
+    $('#btnPause').setAttribute('aria-label', paused ? '再開' : '一時停止');
+    $('#recTime').classList.toggle('paused', paused);
+  };
   function setRecordingUI(on) {
+    const canPause = on && recorder && typeof recorder.pause === 'function';
+    $('#btnPause').hidden = !canPause;
+    $('#btnPause').classList.remove('paused'); $('#recTime').classList.remove('paused');
+    if (!on) recPausedAt = 0;
     $('#modeRow').style.visibility = on ? 'hidden' : '';
     $('#btnSwitch').style.visibility = on ? 'hidden' : '';
     $('#btnGallery').style.visibility = on ? 'hidden' : '';
@@ -730,7 +833,8 @@
       if (b) files.push(new File([b], it.name, { type: it.mime, lastModified: it.created }));
     }
     if (!files.length) return false;
-    if (saveVia() === 'share') {
+    const via = saveVia();
+    if (via === 'share') {
       await navigator.share({ files });
     } else {
       // Android・PC：直接ダウンロード（Androidは「Download」フォルダ → ギャラリー/Googleフォトに表示）
@@ -743,6 +847,11 @@
       showToast(null, files.length > 1 ? `${files.length}件を端末に保存しました` : '端末に保存しました');
     }
     for (const it of list) { it.saved = true; await DB.put(it); }
+    // 3: 共有メニューで保存が完了したら、アプリ内からは自動で消す（設定でオフ可）
+    if (S.autoDelete && via === 'share') {
+      await deleteItems(list);
+      showToast(null, list.length > 1 ? `${list.length}件を保存し、アプリ内から削除しました` : '保存し、アプリ内から削除しました');
+    }
     updateGalleryButton(); if (!$('#gallery').hidden) renderGallery();
     return true;
   }
@@ -918,12 +1027,22 @@
     if (selected.has(viewerItem.id)) selected.delete(viewerItem.id); else selected.add(viewerItem.id);
     updateViewerBar();
   };
+  // 削除・保存で消える写真の次に表示する写真を求める
+  function nextAfter(gone) {
+    const idx = items.findIndex((x) => x.id === viewerItem.id);
+    for (let i = idx; i < items.length; i++) if (!gone.has(items[i].id)) return items[i];
+    for (let i = idx - 1; i >= 0; i--) if (!gone.has(items[i].id)) return items[i];
+    return null;
+  }
   $('#vSave').onclick = async () => {
     const l = viewerTargets(); if (!l.length) return;
+    const next = nextAfter(new Set(l.map((i) => i.id)));
     try {
       await shareItems(l);
       selected.clear(); selecting = false; renderGallery();
-      openViewer(viewerItem);
+      if (items.some((x) => x.id === viewerItem.id)) openViewer(viewerItem);
+      else if (next && items.some((x) => x.id === next.id)) openViewer(next, 1);
+      else closeViewer();
     } catch (e) { if (e.name !== 'AbortError') showError(e); }
   };
   $('#vDelete').onclick = async () => {
@@ -951,7 +1070,7 @@
       const el = $('#' + id); el.value = S[key];
       el.onchange = () => { S[key] = el.value; saveSettings(); if (key === 'saveTarget') updateSaveLabels(); if ((key === 'videoRes' || key === 'videoFps') && S.mode === 'video') restartSoon(); };
     }
-    const chk = { setLocation: 'location', setGrid: 'grid', setLevel: 'level', setMirror: 'mirror', setAudio: 'audio' };
+    const chk = { setAutoDelete: 'autoDelete', setLocation: 'location', setGrid: 'grid', setLevel: 'level', setMirror: 'mirror', setAudio: 'audio' };
     for (const [id, key] of Object.entries(chk)) {
       const el = $('#' + id); el.checked = !!S[key];
       el.onchange = () => {
@@ -969,6 +1088,9 @@
       `カメラ: ${track ? track.label || '-' : '-'}`,
       `映像解像度: ${video.videoWidth}×${video.videoHeight}${s.frameRate ? ` / ${Math.round(s.frameRate)}fps` : ''}`,
       `ズーム: ${hwZoom ? `光学/デジタル（${caps.zoom.min}〜${caps.zoom.max}×）` : 'デジタル（切り抜き）'}`,
+      `ピント: ${hwFocus() ? 'タップで合わせる' : '自動のみ（このブラウザは指定不可）'}`,
+      `明るさ: ${hwEV() ? 'カメラで調整' : '画像補正（写真のみ）'}`,
+      `データ保護: ${persistState}`,
       `ライト: ${caps.torch ? '対応' : isFront() ? '画面フラッシュ' : '非対応'}${torchErr ? `（${torchErr}）` : ''}`,
       `カメラ一覧: ${devices.map((d) => `${d.label || '?'}[${d.kind || '-'}]`).join(' / ') || '-'}`,
       `色空間: ${P3 ? 'Display P3' : canvas ? 'sRGB' : '撮影時に判定'}`,
@@ -1005,7 +1127,31 @@
   };
   $('#btnFilter').onclick = () => { const st = $('#filterStrip'); st.hidden = !st.hidden; if (!st.hidden) buildFilterStrip(); };
   $('#btnSettings').onclick = () => { updateInfo(); $('#settings').hidden = false; };
-  $('#btnGallery').onclick = () => { selecting = false; selected.clear(); renderGallery(); $('#gallery').hidden = false; };
+  let peekTimer = 0, peeked = false, peekUrl = null, pressing = false;
+  $('#btnGallery').onclick = () => {
+    if (peeked) { peeked = false; return; } // 長押しプレビュー後の指離しではギャラリーを開かない
+    selecting = false; selected.clear(); renderGallery(); $('#gallery').hidden = false;
+  };
+  async function showPeek() {
+    const it = items[0]; if (!it) return;
+    peeked = true;
+    const b = await DB.blob(it.id); if (!b || !pressing) return; // 読み込み中に指を離したら表示しない
+    if (peekUrl) URL.revokeObjectURL(peekUrl);
+    peekUrl = URL.createObjectURL(b);
+    const el = document.createElement(it.type === 'video' ? 'video' : 'img');
+    el.src = peekUrl; if (it.type === 'video') { el.muted = true; el.autoplay = true; el.loop = true; el.playsInline = true; }
+    $('#peekBody').innerHTML = ''; $('#peekBody').appendChild(el);
+    $('#peek').hidden = false;
+  }
+  function hidePeek() {
+    clearTimeout(peekTimer);
+    if ($('#peek').hidden) return;
+    $('#peek').hidden = true; $('#peekBody').innerHTML = '';
+    if (peekUrl) { URL.revokeObjectURL(peekUrl); peekUrl = null; }
+  }
+  $('#btnGallery').addEventListener('pointerdown', () => { pressing = true; peeked = false; clearTimeout(peekTimer); peekTimer = setTimeout(showPeek, 350); });
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave']) $('#btnGallery').addEventListener(type, () => { pressing = false; clearTimeout(peekTimer); hidePeek(); });
+  $('#btnGallery').addEventListener('contextmenu', (e) => e.preventDefault());
   $$('[data-close]').forEach((b) => { b.onclick = () => { const id = b.dataset.close; if (id === 'viewer') closeViewer(); else $('#' + id).hidden = true; }; });
   $('#btnSwitch').onclick = () => {
     if (recorder || busy) return;
@@ -1042,12 +1188,30 @@
     }
   });
 
+  // ================= 1: 写真データの保護 =================
+  // ブラウザに「容量が足りなくても消さないで」と申請（ホーム画面のアプリは通りやすい）
+  let persistState = '未確認';
+  async function requestPersist() {
+    try {
+      if (!navigator.storage || !navigator.storage.persist) { persistState = '非対応'; return; }
+      let ok = await navigator.storage.persisted();
+      if (!ok) ok = await navigator.storage.persist();
+      persistState = ok ? '有効（自動削除されません）' : '未許可（ホーム画面に追加すると有効になりやすい）';
+      if (navigator.storage.estimate) {
+        const e = await navigator.storage.estimate();
+        if (e && e.usage != null) persistState += ` / 使用 ${(e.usage / 1048576).toFixed(0)}MB`;
+      }
+    } catch { persistState = '確認できませんでした'; }
+    updateInfo();
+  }
+
   // ================= 起動 =================
   async function boot(auto = false) {
     try {
       $('#btnStart').disabled = true;
       await startCamera();
       $('#startScreen').hidden = true;
+      requestPersist();
       startGeo();
       if (S.level) {
         // iOSはモーション許可にタップ操作が必要なので、自動起動時は最初のタップで有効化

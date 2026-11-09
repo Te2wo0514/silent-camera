@@ -171,3 +171,34 @@ html.rotm90 #app, html.rotm90 .sheet, html.rotm90 #viewer { padding: env(safe-ar
 #vPick.on .box { background: var(--accent); border-color: var(--accent); color: #000; }
 #vPick.on .box::after { content: "✓"; font-weight: 800; }
 #vPick.on { background: rgba(255,214,10,.15); }
+
+/* ---- タップでピント・明るさ ---- */
+#video { pointer-events: none; }
+#focusBox { position: absolute; width: 0; height: 0; pointer-events: none; z-index: 3; }
+#focusBox .sq { position: absolute; left: -38px; top: -38px; width: 76px; height: 76px; border: 1.5px solid var(--accent); border-radius: 2px;
+  animation: focusIn .25s ease-out; }
+@keyframes focusIn { from { transform: scale(1.35); opacity: .2; } to { transform: scale(1); opacity: 1; } }
+#focusBox .evRail { position: absolute; left: 48px; top: -60px; width: 2px; height: 120px; background: rgba(255,214,10,.35); }
+#focusBox .sun { position: absolute; left: -11px; top: 49px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  color: var(--accent); font-size: 20px; line-height: 1; text-shadow: 0 0 4px rgba(0,0,0,.6); }
+#focusBox .evVal { position: absolute; left: 60px; top: -10px; color: var(--accent); font-size: 13px; font-weight: 700; text-shadow: 0 0 4px rgba(0,0,0,.8);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+#focusBox.noev .evRail, #focusBox.noev .evVal { display: none; }
+html.rot #focusBox .evVal { transform: rotate(var(--counter)); }
+
+/* ---- 録画の一時停止 ---- */
+#btnGallery { grid-column: 1; grid-row: 1; }
+#shutter { grid-column: 2; grid-row: 1; }
+#btnSwitch, #btnPause { grid-column: 3; grid-row: 1; }
+#btnPause { justify-self: end; width: 48px; height: 48px; border-radius: 24px; background: rgba(255,255,255,.16); display: flex; align-items: center; justify-content: center; }
+#btnPause .ic { width: 16px; height: 18px; border-left: 5px solid #fff; border-right: 5px solid #fff; }
+#btnPause.paused .ic { width: 18px; height: 18px; border: 0; border-radius: 50%; background: var(--red); }
+#recTime.paused { animation: pulse 1s infinite; background: rgba(255,69,58,.55); }
+
+/* ---- サムネイル長押しのプレビュー ---- */
+#peek { position: fixed; inset: 0; z-index: 45; background: rgba(0,0,0,.92); display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 24px 12px; pointer-events: none; animation: peekIn .15s ease-out; }
+@keyframes peekIn { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+#peekBody { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+#peekBody img, #peekBody video { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+#peek p { margin: 10px 0 0; color: var(--dim); font-size: 13px; }

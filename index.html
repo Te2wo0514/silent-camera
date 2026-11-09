@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css?v=24">
+<link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
 <div id="app">
@@ -48,6 +48,7 @@
       <div id="burstCount" hidden></div>
       <div id="blink"></div>
       <div id="zoomBadge" hidden>1.0×</div>
+      <div id="focusBox" hidden><div class="sq"></div><div class="evRail"><div class="sun">☀︎</div></div><div class="evVal"></div></div>
     </div>
     <div id="screenFlash"></div>
   </main>
@@ -66,8 +67,11 @@
       <button id="btnSwitch" aria-label="カメラ切替">
         <svg viewBox="0 0 24 24"><path d="M20 7h-3l-2-3H9L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" fill="none" stroke-width="1.8"/><path d="M9 13a3 3 0 0 1 5.2-2M15 13a3 3 0 0 1-5.2 2M14 9.5l.4 1.6-1.6.3M10 16.5l-.4-1.6 1.6-.3" fill="none" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
+      <button id="btnPause" aria-label="一時停止" hidden><span class="ic"></span></button>
     </div>
   </footer>
+  <!-- 5: 直前の写真のプレビュー（サムネイル長押し） -->
+  <div id="peek" hidden><div id="peekBody"></div><p>指を離すと閉じます</p></div>
 
   <!-- 保存トースト -->
   <div id="toast" hidden>
@@ -115,6 +119,8 @@
           <option value="png">PNG 劣化なし（位置情報なし・大容量）</option>
         </select>
       </label>
+      <label class="row">保存後にアプリ内から削除<input type="checkbox" id="setAutoDelete"></label>
+      <p class="hint">写真アプリへの保存（共有メニューでの保存・送信）が完了した写真・ビデオを、アプリ内のギャラリーから自動で消します。Androidの「端末に直接ダウンロード」では、保存の成否を確認できないため消しません。</p>
       <label class="row">位置情報を付ける<input type="checkbox" id="setLocation"></label>
 
       <h3>撮影</h3>
@@ -165,7 +171,7 @@
     </div>
   </section>
 </div>
-<script src="exif.js?v=24"></script>
-<script src="app.js?v=24"></script>
+<script src="exif.js?v=25"></script>
+<script src="app.js?v=25"></script>
 </body>
 </html>
