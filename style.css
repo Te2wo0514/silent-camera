@@ -150,3 +150,4 @@ svg { width: 22px; height: 22px; fill: currentColor; stroke: currentColor; strok
 #vBody { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 0; }
 #vBody img, #vBody video { max-width: 100%; max-height: 100%; object-fit: contain; }
 #vTitle { font-size: 13px !important; font-weight: 500; color: var(--dim); }
+#startMsg { white-space: pre-line; }

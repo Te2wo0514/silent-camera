@@ -194,9 +194,13 @@
     const attempts = [];
     if (devId) attempts.push({ video: { ...v, deviceId: { exact: devId } }, audio: false });
     attempts.push({ video: { ...v, ...facing }, audio: false });
+    // 端末によっては解像度指定で失敗するので、条件を緩めて再試行
+    attempts.push({ video: facing, audio: false });
+    attempts.push({ video: true, audio: false });
     let err;
     for (const c of attempts) {
-      try { stream = await navigator.mediaDevices.getUserMedia(c); break; } catch (e) { err = e; if (e.name === 'NotAllowedError') break; }
+      try { stream = await navigator.mediaDevices.getUserMedia(c); break; }
+      catch (e) { err = e; if (e.name === 'NotAllowedError' || e.name === 'SecurityError') break; }
     }
     if (!stream) throw err;
     track = stream.getVideoTracks()[0];
@@ -853,19 +857,40 @@
       }
     } catch (e) {
       console.error(e);
-      $('#startMsg').textContent = e && e.name === 'NotAllowedError'
-        ? 'カメラへのアクセスが許可されていません。iPhoneの「設定 > アプリ > Safari > カメラ」で「確認」または「許可」にしてから、もう一度お試しください。'
-        : `カメラを起動できませんでした：${(e && e.message) || e}`;
+      $('#startMsg').textContent = cameraErrorText(e);
     } finally { $('#btnStart').disabled = false; }
   }
   $("#btnStart").onclick = () => boot(false);
 
+  // ---- 端末・ブラウザ判定とエラー案内 ----
+  const UA = navigator.userAgent;
+  const IS_IOS = /iPhone|iPad|iPod/i.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const IN_APP = / Line\/|FBAN|FBAV|Instagram|Twitter|MicroMessenger|KAKAOTALK|; wv\)/i.test(UA);
+  function cameraErrorText(e) {
+    const name = (e && e.name) || '';
+    if (IN_APP) return 'アプリ内ブラウザ（LINEなど）ではカメラを使えないことがあります。右上のメニューから「ブラウザで開く」を選び、' + (IS_ANDROID ? 'Chrome' : 'Safari') + 'で開いてください。';
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      if (IS_ANDROID) return 'カメラが許可されていません。\n① アドレスバー左の鍵（または設定）アイコン →「権限」→「カメラ」を許可\n② それでもだめなら、Androidの「設定 > アプリ > Chrome > 権限 > カメラ」を許可\n③ クイック設定の「カメラへのアクセス」がオフならオンに\nその後、ページを再読み込みしてください。';
+      if (IS_IOS) return 'カメラへのアクセスが許可されていません。iPhoneの「設定 > アプリ > Safari > カメラ」で「確認」または「許可」にしてから、もう一度お試しください。';
+      return 'カメラへのアクセスが許可されていません。ブラウザのサイト設定でカメラを許可してから、ページを再読み込みしてください。';
+    }
+    if (name === 'NotReadableError' || name === 'AbortError') return 'カメラを開けませんでした。ほかのアプリ（カメラ・ビデオ通話など）がカメラを使っていないか確認し、閉じてから再度お試しください。';
+    if (name === 'NotFoundError' || name === 'OverconstrainedError') return '使えるカメラが見つかりませんでした。';
+    return `カメラを起動できませんでした：${name ? name + ' / ' : ''}${(e && e.message) || e}`;
+  }
+  // LINEのアプリ内ブラウザは openExternalBrowser=1 で既定ブラウザに切り替えられる
+  if (/ Line\//i.test(UA) && !/[?&]openExternalBrowser=1/.test(location.search)) {
+    const u = new URL(location.href); u.searchParams.set('openExternalBrowser', '1'); location.replace(u.toString());
+  }
+
   (async () => {
     bindSettings(); updateTopbar(); updateSaveLabels();
+    if (IN_APP) $('#startMsg').textContent = cameraErrorText(null);
     try { items = (await DB.all()).sort((a, b) => b.id - a.id); updateGalleryButton(); } catch (e) { console.warn(e); }
     try {
       const p = navigator.permissions && await navigator.permissions.query({ name: 'camera' });
       if (p && p.state === "granted") boot(true);
+      else if (p && p.state === "denied") $('#startMsg').textContent = cameraErrorText({ name: 'NotAllowedError' });
     } catch {}
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   })();
