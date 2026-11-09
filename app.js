@@ -11,7 +11,7 @@
   }
   setAudioSession('ambient');
 
-  const APP_VERSION = 20;
+  const APP_VERSION = 21;
   // ================= 設定 =================
   const DEFAULTS = {
     saveMode: 'batch', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
