@@ -13,7 +13,7 @@
 
   // ================= 設定 =================
   const DEFAULTS = {
-    saveMode: 'each', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
+    saveMode: 'batch', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
     videoRes: '1080', videoFps: '30', audio: true,
     aspect: '4:3', timer: 0, filter: 'none', flash: false, mode: 'photo', facing: 'back', lens: 'wide',
   };
@@ -21,6 +21,8 @@
   const saveSettings = () => { try { localStorage.setItem('silentcam.settings', JSON.stringify(S)); } catch {} };
   // v2: 画質の初期値を JPEG 95% に変更（旧版で自動保存された 100% も置き換える）
   if ((S.v || 1) < 2) { if (S.quality === '1') S.quality = '0.95'; S.v = 2; saveSettings(); }
+  // v3: 保存方法の初期値を「ギャラリーにためて後で保存」に変更（旧版で保存された初期値も置き換える）
+  if (S.v < 3) { S.saveMode = 'batch'; S.v = 3; saveSettings(); }
 
   // ================= フィルタ =================
   const FILTERS = [
