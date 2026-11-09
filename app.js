@@ -11,7 +11,7 @@
   }
   setAudioSession('ambient');
 
-  const APP_VERSION = 17;
+  const APP_VERSION = 19;
   // ================= 設定 =================
   const DEFAULTS = {
     saveMode: 'batch', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
@@ -260,10 +260,13 @@
     badge.hidden = Math.abs(shown - 1) < 0.05;
   }
 
+  // 端末のズーム上限（ハード対応なら端末の上限、なければ切り抜きで10×まで）
+  const DIGITAL_MAX = 10;
+  const maxZoom = () => (hwZoom ? Math.min(caps.zoom.max, 30) : DIGITAL_MAX);
   let zoomPending = null, zoomRaf = 0;
   function setZoom(z) {
     if (hwZoom) {
-      zoom = clamp(z, caps.zoom.min, Math.min(caps.zoom.max, 15));
+      zoom = clamp(z, caps.zoom.min, maxZoom());
       zoomPending = zoom;
       if (!zoomRaf) {
         zoomRaf = requestAnimationFrame(async () => {
@@ -272,7 +275,7 @@
         });
       }
     } else {
-      zoom = S.mode === 'video' ? 1 : clamp(z, 1, 8);
+      zoom = S.mode === 'video' ? 1 : clamp(z, 1, maxZoom());
     }
     applyPreview(); markLens();
   }
@@ -329,7 +332,7 @@
     return false;
   }
   // 背面カメラでは常にフラッシュボタンを出す（前面は画面フラッシュ。ビデオ時の前面は不可）
-  const flashAvailable = () => (isFront() ? S.mode === 'photo' : true);
+  const flashAvailable = () => (isFront() ? S.mode === 'photo' : (!!caps.torch || !S.noTorch));
 
   // ================= UI: 上部・レンズ =================
   function updateTopbar() {
@@ -358,7 +361,14 @@
       const kinds = new Set(devices.map((d) => d.kind));
       if (kinds.has('ultra')) add('0.5×', () => switchLens('ultra'), 'ultra');
       add('1×', () => (S.lens === 'wide' ? setZoom(1) : switchLens('wide')), 'wide');
-      if (S.mode === 'photo' || hwZoom) add('2×', () => { if (S.lens !== 'wide') switchLens('wide', 2); else setZoom(2); }, 'z2');
+      if (S.mode === 'photo' || hwZoom) {
+        // 端末が対応する最大倍率まで、2×・3×・5×・10×… のボタンを出す
+        const max = maxZoom();
+        for (const z of [2, 3, 5, 10, 20, 30]) {
+          if (z === 3 && kinds.has('tele')) continue;
+          if (z <= max + 0.01) add(`${z}×`, () => { if (S.lens !== 'wide') switchLens('wide', z); else setZoom(z); }, `z${z}`);
+        }
+      }
       if (kinds.has('tele')) add('望遠', () => switchLens('tele'), 'tele');
     }
     markLens();
@@ -366,7 +376,7 @@
   function markLens() {
     $$('#lensRow button').forEach((b) => {
       const k = b.dataset.key;
-      const on = k === 'z2' ? S.lens === 'wide' && Math.abs(zoom - 2) < 0.05
+      const on = /^z\d+$/.test(k) ? S.lens === 'wide' && Math.abs(zoom - +k.slice(1)) < 0.05
         : k === S.lens && (k !== 'wide' || Math.abs(zoom - 1) < 0.05);
       b.classList.toggle('on', on);
     });
@@ -860,10 +870,14 @@
     try {
       const ok = await ensureTorch();
       if (S.mode !== 'video') await setTorch(false); // 写真は撮影時だけ点灯
-      if (!ok) { S.flash = false; saveSettings(); updateTopbar(); torchNotice(); }
+      if (!ok) {
+        // 「非対応」と確定した端末では、次回からボタンを隠す
+        if (/Overconstrained|NotSupported/.test(torchErr)) S.noTorch = true;
+        S.flash = false; saveSettings(); updateTopbar(); torchNotice();
+      }
     } finally { flashBusy = false; updateInfo(); }
   };
-  function torchNotice() { showToast(null, `この端末のブラウザではライトを点灯できませんでした（${torchErr || 'torch非対応'}）`); }
+  function torchNotice() { showToast(null, `この端末のブラウザではライトを操作できないため、フラッシュボタンを非表示にします（${torchErr || 'torch非対応'}）`); }
   $('#btnTimer').onclick = () => { S.timer = S.timer === 0 ? 3 : S.timer === 3 ? 10 : 0; saveSettings(); updateTopbar(); };
   $('#btnAspect').onclick = () => {
     const order = ['4:3', '16:9', '1:1'];
