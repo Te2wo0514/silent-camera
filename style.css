@@ -20,7 +20,7 @@ svg { width: 22px; height: 22px; fill: currentColor; stroke: currentColor; strok
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 
 /* 上部バー */
-#topbar { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 8px 12px; min-height: 48px; }
+#topbar { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 18px 12px 8px; min-height: 58px; }
 .tb { display: inline-flex; align-items: center; gap: 4px; padding: 6px 8px; border-radius: 16px; font-size: 13px; min-width: 36px; justify-content: center; }
 .tb.on { color: var(--accent); }
 .tb svg { width: 20px; height: 20px; }
