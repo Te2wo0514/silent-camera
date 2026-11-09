@@ -11,6 +11,7 @@
   }
   setAudioSession('ambient');
 
+  const APP_VERSION = 16;
   // ================= 設定 =================
   const DEFAULTS = {
     saveMode: 'batch', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
@@ -789,6 +790,7 @@
   function updateInfo() {
     const s = track ? track.getSettings() : {};
     const lines = [
+      `アプリ版: v${APP_VERSION}`,
       `カメラ: ${track ? track.label || '-' : '-'}`,
       `映像解像度: ${video.videoWidth}×${video.videoHeight}${s.frameRate ? ` / ${Math.round(s.frameRate)}fps` : ''}`,
       `ズーム: ${hwZoom ? `光学/デジタル（${caps.zoom.min}〜${caps.zoom.max}×）` : 'デジタル（切り抜き）'}`,
