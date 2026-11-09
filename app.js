@@ -11,7 +11,7 @@
   }
   setAudioSession('ambient');
 
-  const APP_VERSION = 19;
+  const APP_VERSION = 20;
   // ================= 設定 =================
   const DEFAULTS = {
     saveMode: 'batch', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
@@ -261,8 +261,8 @@
   }
 
   // 端末のズーム上限（ハード対応なら端末の上限、なければ切り抜きで10×まで）
-  const DIGITAL_MAX = 10;
-  const maxZoom = () => (hwZoom ? Math.min(caps.zoom.max, 30) : DIGITAL_MAX);
+  const DIGITAL_MAX = 8;
+  const maxZoom = () => (hwZoom ? Math.min(caps.zoom.max, 15) : DIGITAL_MAX);
   let zoomPending = null, zoomRaf = 0;
   function setZoom(z) {
     if (hwZoom) {
@@ -362,10 +362,9 @@
       if (kinds.has('ultra')) add('0.5×', () => switchLens('ultra'), 'ultra');
       add('1×', () => (S.lens === 'wide' ? setZoom(1) : switchLens('wide')), 'wide');
       if (S.mode === 'photo' || hwZoom) {
-        // 端末が対応する最大倍率まで、2×・3×・5×・10×… のボタンを出す
+        // 実レンズ以外の倍率はデジタル拡大で画質が落ちるため、ボタンは2×だけにする
         const max = maxZoom();
-        for (const z of [2, 3, 5, 10, 20, 30]) {
-          if (z === 3 && kinds.has('tele')) continue;
+        for (const z of [2]) {
           if (z <= max + 0.01) add(`${z}×`, () => { if (S.lens !== 'wide') switchLens('wide', z); else setZoom(z); }, `z${z}`);
         }
       }
