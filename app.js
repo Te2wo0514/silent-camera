@@ -11,7 +11,7 @@
   }
   setAudioSession('ambient');
 
-  const APP_VERSION = 22;
+  const APP_VERSION = 23;
   // ================= 設定 =================
   const DEFAULTS = {
     saveMode: 'batch', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
@@ -830,29 +830,84 @@
   }
 
   // ---- ビューア ----
-  let viewerItem = null, viewerUrl = null;
-  async function openViewer(it) {
+  // 左右スワイプで前後の写真へ切り替え（ギャラリーの並び順＝新しい順）
+  let viewerItem = null, viewerUrl = null, viewerSeq = 0;
+  async function openViewer(it, dir = 0) {
+    const seq = ++viewerSeq;
     viewerItem = it;
     const b = await DB.blob(it.id);
-    if (viewerUrl) URL.revokeObjectURL(viewerUrl);
-    viewerUrl = URL.createObjectURL(b);
-    const body = $('#vBody'); body.innerHTML = '';
+    if (seq !== viewerSeq) return; // 素早く連続スワイプしたときは最後の1枚だけ表示
+    const url = URL.createObjectURL(b);
+    const body = $('#vBody');
     const el = document.createElement(it.type === 'video' ? 'video' : 'img');
-    el.src = viewerUrl;
+    el.src = url;
     if (it.type === 'video') { el.controls = true; el.playsInline = true; }
-    body.appendChild(el);
+    body.innerHTML = ''; body.appendChild(el);
+    if (viewerUrl) URL.revokeObjectURL(viewerUrl);
+    viewerUrl = url;
+    if (dir) { // 横から滑り込むアニメーション
+      el.style.transform = `translateX(${dir * 40}%)`; el.style.opacity = '0';
+      requestAnimationFrame(() => requestAnimationFrame(() => { el.style.transition = 'transform .2s ease-out, opacity .2s'; el.style.transform = ''; el.style.opacity = ''; }));
+    }
     const d = new Date(it.created);
+    const idx = items.findIndex((x) => x.id === it.id);
+    $('#vPos').textContent = items.length > 1 ? `${idx + 1} / ${items.length}` : '';
     $('#vTitle').textContent = `${d.toLocaleString('ja-JP')}　${it.w}×${it.h}　${(it.size / 1048576).toFixed(1)}MB${it.saved ? '　✓保存済み' : ''}`;
     $('#viewer').hidden = false;
   }
+  function stepViewer(delta) {
+    const idx = items.findIndex((x) => x.id === (viewerItem && viewerItem.id));
+    const next = items[idx + delta];
+    if (idx < 0 || !next) { bounceViewer(delta); return false; }
+    openViewer(next, delta);
+    return true;
+  }
+  function bounceViewer(delta) { // 端に来たら少し揺らして知らせる
+    const el = $('#vBody').firstElementChild; if (!el) return;
+    el.style.transition = 'transform .12s'; el.style.transform = `translateX(${-delta * 24}px)`;
+    setTimeout(() => { el.style.transform = ''; }, 120);
+  }
   function closeViewer() {
+    viewerSeq++;
     $('#viewer').hidden = true; $('#vBody').innerHTML = '';
     if (viewerUrl) { URL.revokeObjectURL(viewerUrl); viewerUrl = null; }
   }
+  // スワイプ操作：指に合わせて画像を動かし、一定以上動かしたら切り替え
+  (() => {
+    const body = $('#vBody'); let sx = 0, sy = 0, dx = 0, mode = null;
+    body.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) { mode = 'off'; return; }
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; dx = 0; mode = null;
+    }, { passive: true });
+    body.addEventListener('touchmove', (e) => {
+      if (mode === 'off' || e.touches.length !== 1) return;
+      const x = e.touches[0].clientX - sx, y = e.touches[0].clientY - sy;
+      if (!mode && Math.hypot(x, y) > 10) mode = Math.abs(x) > Math.abs(y) ? 'h' : 'v';
+      if (mode !== 'h') return;
+      e.preventDefault(); dx = x;
+      const el = body.firstElementChild; if (el) { el.style.transition = 'none'; el.style.transform = `translateX(${dx}px)`; }
+    }, { passive: false });
+    body.addEventListener('touchend', () => {
+      if (mode === 'h') {
+        const el = body.firstElementChild;
+        const ok = Math.abs(dx) > Math.min(80, body.clientWidth * 0.18) && stepViewer(dx < 0 ? 1 : -1);
+        if (!ok && el) { el.style.transition = 'transform .18s'; el.style.transform = ''; }
+      }
+      mode = null; dx = 0;
+    });
+    addEventListener('keydown', (e) => {
+      if ($('#viewer').hidden) return;
+      if (e.key === 'ArrowRight') stepViewer(1); else if (e.key === 'ArrowLeft') stepViewer(-1); else if (e.key === 'Escape') closeViewer();
+    });
+  })();
   $('#vSave').onclick = async () => { try { await shareItems([viewerItem]); openViewer(viewerItem); } catch (e) { if (e.name !== 'AbortError') showError(e); } };
   $('#vDelete').onclick = async () => {
     if (!confirm(`削除します。${viewerItem.saved ? '' : '\n※ まだ写真アプリに保存していません。'}\nこの操作は取り消せません。`)) return;
-    await deleteItems([viewerItem]); closeViewer(); renderGallery();
+    // 削除後は隣の写真を表示して、続けて選別できるようにする
+    const idx = items.findIndex((x) => x.id === viewerItem.id);
+    await deleteItems([viewerItem]); renderGallery();
+    const next = items[idx] || items[idx - 1];
+    if (next) openViewer(next, items[idx] ? 1 : -1); else closeViewer();
   };
 
   // ================= 設定画面 =================
