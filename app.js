@@ -11,7 +11,7 @@
   }
   setAudioSession('ambient');
 
-  const APP_VERSION = 21;
+  const APP_VERSION = 22;
   // ================= 設定 =================
   const DEFAULTS = {
     saveMode: 'batch', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
@@ -239,6 +239,33 @@
     restartTimer = setTimeout(() => startCamera().catch(showError), 300);
   }
 
+  // ================= 横持ち対応 =================
+  // 純正カメラのように、端末を横にしても画面レイアウトは縦のまま固定し、
+  // 映像と倍率などの文字だけを回転させる（ブラウザが横画面に切り替えた分を打ち消す）
+  let rotAngle = 0;
+  function screenAngle() {
+    let a = screen.orientation && typeof screen.orientation.angle === 'number' ? screen.orientation.angle
+      : typeof window.orientation === 'number' ? window.orientation : 0;
+    if (a === 270) a = -90;
+    return a;
+  }
+  // 映像の逆回転量：ブラウザが映像も横向きにした場合だけ回す
+  const videoRot = () => (rotAngle && video.videoWidth && video.videoWidth > video.videoHeight ? rotAngle : 0);
+  function updateRotation() {
+    const a = screenAngle();
+    rotAngle = innerWidth > innerHeight && (a === 90 || a === -90) ? a : 0;
+    const de = document.documentElement, b = document.body;
+    de.classList.toggle('rot', !!rotAngle);
+    de.classList.toggle('rot90', rotAngle === 90); de.classList.toggle('rotm90', rotAngle === -90);
+    de.style.setProperty('--counter', `${rotAngle}deg`);
+    if (rotAngle) {
+      const W = innerWidth, H = innerHeight;
+      b.style.width = `${H}px`; b.style.height = `${W}px`;
+      b.style.transform = rotAngle === 90 ? `translateY(${H}px) rotate(-90deg)` : `translateX(${W}px) rotate(90deg)`;
+    } else { b.style.width = b.style.height = b.style.transform = ''; }
+    fitFinder(); applyPreview();
+  }
+
   const portraitVideo = () => (video.videoWidth ? video.videoHeight > video.videoWidth : innerHeight > innerWidth);
   function targetRatio() { // ファインダー・保存画像の 幅/高さ
     if (S.mode === 'video') return video.videoWidth ? video.videoWidth / video.videoHeight : (portraitVideo() ? 9 / 16 : 16 / 9);
@@ -246,13 +273,18 @@
     return portraitVideo() ? b / a : a / b;
   }
   function fitFinder() {
-    const st = $('#stage'); const W = st.clientWidth, H = st.clientHeight; const r = targetRatio();
+    const st = $('#stage'); const W = st.clientWidth, H = st.clientHeight;
+    const vr = videoRot(); const r = vr ? 1 / targetRatio() : targetRatio();
     let w = W, h = W / r; if (h > H) { h = H; w = H * r; }
     finder.style.width = `${Math.floor(w)}px`; finder.style.height = `${Math.floor(h)}px`;
+    // 横持ち時は映像だけを逆回転させるので、映像の縦横を入れ替えて中央に置く
+    video.classList.toggle('rot', !!vr);
+    video.style.width = vr ? `${Math.floor(h)}px` : ''; video.style.height = vr ? `${Math.floor(w)}px` : '';
   }
   function applyPreview() {
     const m = isFront() ? -1 : 1; const z = hwZoom ? 1 : zoom;
-    video.style.transform = `scale(${m * z}, ${z})`;
+    const vr = videoRot();
+    video.style.transform = `${vr ? `translate(-50%, -50%) rotate(${vr}deg) ` : ''}scale(${m * z}, ${z})`;
     video.style.filter = S.mode === 'photo' ? filterCss(S.filter) : '';
     const badge = $('#zoomBadge');
     const shown = hwZoom ? zoom : zoom;
@@ -908,7 +940,9 @@
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('dblclick', (e) => e.preventDefault());
 
-  addEventListener('resize', () => setTimeout(fitFinder, 100));
+  addEventListener('resize', () => { updateRotation(); setTimeout(updateRotation, 150); });
+  if (screen.orientation) screen.orientation.addEventListener('change', () => setTimeout(updateRotation, 50));
+  video.addEventListener('resize', () => { fitFinder(); applyPreview(); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       if (recorder) recorder.stop();
@@ -961,7 +995,7 @@
   }
 
   (async () => {
-    bindSettings(); updateTopbar(); updateSaveLabels();
+    bindSettings(); updateTopbar(); updateSaveLabels(); updateRotation();
     if (IN_APP) $('#startMsg').textContent = cameraErrorText(null);
     try { items = (await DB.all()).sort((a, b) => b.id - a.id); updateGalleryButton(); } catch (e) { console.warn(e); }
     try {
