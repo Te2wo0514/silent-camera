@@ -21,10 +21,11 @@ svg { width: 22px; height: 22px; fill: currentColor; stroke: currentColor; strok
 
 /* 上部バー */
 #topbar { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 18px 12px 8px; min-height: 58px; }
-.tb { display: inline-flex; align-items: center; gap: 4px; padding: 6px 8px; border-radius: 16px; font-size: 13px; min-width: 36px; justify-content: center; }
+.tb { display: inline-flex; align-items: center; gap: 4px; padding: 6px 8px; border-radius: 16px; font-size: 15px; font-weight: 600; letter-spacing: .02em; min-width: 36px; justify-content: center; }
 .tb.on { color: var(--accent); }
-.tb svg { width: 20px; height: 20px; }
-#btnTimer svg path, #btnTimer svg circle, #btnFilter svg circle { stroke-width: 2; fill: none; }
+.tb svg, .badge svg { width: 24px; height: 24px; }
+#topbar { -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
+#btnTimer svg path, #btnTimer svg circle, #btnFilter svg circle { stroke-width: 2.2; fill: none; }
 .badge { display: inline-flex; padding: 6px; }
 .badge.off { display: none; }
 .badge.wait { color: var(--dim); animation: pulse 1.2s infinite; }
