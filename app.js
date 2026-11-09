@@ -226,7 +226,9 @@
     if (!devices.length || devices.every((d) => !d.label)) await refreshDevices();
 
     track.addEventListener('ended', () => { if (document.visibilityState === 'visible') restartSoon(); });
-    if (S.flash && S.mode === 'video' && caps.torch && !isFront()) setTorch(true);
+    if (S.flash && S.mode === 'video' && !isFront()) setTorch(true);
+    // Androidは対応情報が遅れて出てくることがあるので少し後に読み直す
+    setTimeout(() => { if (track && track.getCapabilities) { caps = track.getCapabilities() || caps; updateTopbar(); updateInfo(); } }, 1200);
     fitFinder(); applyPreview(); buildLensRow(); updateTopbar(); updateInfo();
   }
   let restartTimer = null;
@@ -273,11 +275,15 @@
     applyPreview(); markLens();
   }
 
+  // Androidのブラウザはライト対応(torch)を後から報告したり報告しなかったりするので、
+  // 報告がなくても試してみる。失敗したら false を返す
   async function setTorch(on) {
-    if (!track || !caps.torch) return;
-    try { await track.applyConstraints({ advanced: [{ torch: on }] }); } catch {}
+    if (!track) return false;
+    try { await track.applyConstraints({ advanced: [{ torch: on }] }); return true; }
+    catch { return false; }
   }
-  const flashAvailable = () => (isFront() ? S.mode === 'photo' : !!caps.torch);
+  // 背面カメラでは常にフラッシュボタンを出す（前面は画面フラッシュ。ビデオ時の前面は不可）
+  const flashAvailable = () => (isFront() ? S.mode === 'photo' : true);
 
   // ================= UI: 上部・レンズ =================
   function updateTopbar() {
@@ -796,10 +802,16 @@
   }
 
   // ================= イベント =================
-  $('#btnFlash').onclick = () => {
+  $('#btnFlash').onclick = async () => {
     S.flash = !S.flash; saveSettings(); updateTopbar();
-    if (S.mode === 'video' && !isFront()) setTorch(S.flash);
+    if (isFront()) return;
+    if (S.mode === 'video') { const ok = await setTorch(S.flash); if (S.flash && !ok) torchNotice(); }
+    else if (S.flash && !caps.torch) {
+      // 対応が不明な端末は一瞬点灯を試して確認
+      const ok = await setTorch(true); await setTorch(false); if (!ok) torchNotice();
+    }
   };
+  function torchNotice() { showToast(null, 'この端末のブラウザではライトを点灯できませんでした'); }
   $('#btnTimer').onclick = () => { S.timer = S.timer === 0 ? 3 : S.timer === 3 ? 10 : 0; saveSettings(); updateTopbar(); };
   $('#btnAspect').onclick = () => {
     const order = ['4:3', '16:9', '1:1'];
