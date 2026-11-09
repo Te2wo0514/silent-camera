@@ -89,22 +89,43 @@
 
   // ================= IndexedDB =================
   const DB = {
-    db: null,
+    db: null, opening: null,
+    // iOSはバックグラウンド移行時などにIndexedDB接続を勝手に閉じるため、閉じたら開き直す
     open() {
-      return this.db ? Promise.resolve(this.db) : new Promise((res, rej) => {
+      if (this.db) return Promise.resolve(this.db);
+      if (this.opening) return this.opening;
+      this.opening = new Promise((res, rej) => {
         const r = indexedDB.open('silentcam', 1);
         r.onupgradeneeded = () => { r.result.createObjectStore('items', { keyPath: 'id' }); r.result.createObjectStore('blobs'); };
-        r.onsuccess = () => { this.db = r.result; res(this.db); };
+        r.onsuccess = () => {
+          const db = r.result;
+          const drop = () => { if (this.db === db) this.db = null; };
+          db.onclose = drop;
+          db.onversionchange = () => { drop(); db.close(); };
+          this.db = db; res(db);
+        };
         r.onerror = () => rej(r.error);
-      });
+        r.onblocked = () => rej(new Error('IndexedDB blocked'));
+      }).finally(() => { this.opening = null; });
+      return this.opening;
     },
+    reset() { try { this.db && this.db.close(); } catch (_) {} this.db = null; },
     async run(stores, mode, fn) {
-      const db = await this.open();
-      return new Promise((res, rej) => {
-        const tx = db.transaction(stores, mode); let out;
-        Promise.resolve(fn(tx, (v) => { out = v; })).catch(rej);
-        tx.oncomplete = () => res(out); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
-      });
+      for (let attempt = 0; ; attempt++) {
+        const db = await this.open();
+        let tx;
+        try { tx = db.transaction(stores, mode); }
+        catch (e) {
+          // "The database connection is closing" 等 → 接続を作り直して1回だけ再試行
+          if (attempt === 0 && (e.name === 'InvalidStateError' || /clos/i.test(e.message))) { this.reset(); continue; }
+          throw e;
+        }
+        return new Promise((res, rej) => {
+          let out;
+          Promise.resolve(fn(tx, (v) => { out = v; })).catch(rej);
+          tx.oncomplete = () => res(out); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error || new Error('transaction aborted'));
+        });
+      }
     },
     add(meta, blob) { return this.run(['items', 'blobs'], 'readwrite', (tx) => { tx.objectStore('items').put(meta); tx.objectStore('blobs').put(blob, meta.id); }); },
     put(meta) { return this.run(['items'], 'readwrite', (tx) => { tx.objectStore('items').put(meta); }); },
