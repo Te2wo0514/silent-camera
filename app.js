@@ -11,7 +11,7 @@
   }
   setAudioSession('ambient');
 
-  const APP_VERSION = 23;
+  const APP_VERSION = 24;
   // ================= 設定 =================
   const DEFAULTS = {
     saveMode: 'batch', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
@@ -719,7 +719,7 @@
   }
   function updateSaveLabels() {
     const label = saveVia() === 'share' ? '写真に保存' : '端末に保存';
-    $('#toastSave').textContent = label; $('#vSave').textContent = label;
+    $('#toastSave').textContent = label; $('#vSave').dataset.label = label; $('#vSave').textContent = label;
     $('#gSave').dataset.label = label;
   }
 
@@ -853,6 +853,7 @@
     const idx = items.findIndex((x) => x.id === it.id);
     $('#vPos').textContent = items.length > 1 ? `${idx + 1} / ${items.length}` : '';
     $('#vTitle').textContent = `${d.toLocaleString('ja-JP')}　${it.w}×${it.h}　${(it.size / 1048576).toFixed(1)}MB${it.saved ? '　✓保存済み' : ''}`;
+    updateViewerBar();
     $('#viewer').hidden = false;
   }
   function stepViewer(delta) {
@@ -869,6 +870,7 @@
   }
   function closeViewer() {
     viewerSeq++;
+    if (selected.size) { selecting = true; renderGallery(); }
     $('#viewer').hidden = true; $('#vBody').innerHTML = '';
     if (viewerUrl) { URL.revokeObjectURL(viewerUrl); viewerUrl = null; }
   }
@@ -900,14 +902,46 @@
       if (e.key === 'ArrowRight') stepViewer(1); else if (e.key === 'ArrowLeft') stepViewer(-1); else if (e.key === 'Escape') closeViewer();
     });
   })();
-  $('#vSave').onclick = async () => { try { await shareItems([viewerItem]); openViewer(viewerItem); } catch (e) { if (e.name !== 'AbortError') showError(e); } };
+  // 選択中の写真があればそれをまとめて、なければ表示中の1枚を対象にする
+  const viewerTargets = () => (selected.size ? items.filter((i) => selected.has(i.id)) : viewerItem ? [viewerItem] : []);
+  function updateViewerBar() {
+    const n = selected.size, on = !!viewerItem && selected.has(viewerItem.id);
+    $('#vPick').classList.toggle('on', on);
+    $('#vPick').setAttribute('aria-pressed', String(on));
+    $('#vPickLabel').textContent = n ? `${n}枚選択` : '選択';
+    const label = $('#vSave').dataset.label || '写真に保存';
+    $('#vSave').textContent = n ? `${n}枚を保存` : label;
+    $('#vDelete').textContent = n ? `${n}枚削除` : '削除';
+  }
+  $('#vPick').onclick = () => {
+    if (!viewerItem) return;
+    if (selected.has(viewerItem.id)) selected.delete(viewerItem.id); else selected.add(viewerItem.id);
+    updateViewerBar();
+  };
+  $('#vSave').onclick = async () => {
+    const l = viewerTargets(); if (!l.length) return;
+    try {
+      await shareItems(l);
+      selected.clear(); selecting = false; renderGallery();
+      openViewer(viewerItem);
+    } catch (e) { if (e.name !== 'AbortError') showError(e); }
+  };
   $('#vDelete').onclick = async () => {
-    if (!confirm(`削除します。${viewerItem.saved ? '' : '\n※ まだ写真アプリに保存していません。'}\nこの操作は取り消せません。`)) return;
-    // 削除後は隣の写真を表示して、続けて選別できるようにする
+    const l = viewerTargets(); if (!l.length) return;
+    const unsaved = l.filter((i) => !i.saved).length;
+    const msg = l.length > 1
+      ? `${l.length}枚を削除します。${unsaved ? `\n※ うち${unsaved}枚はまだ写真アプリに保存していません。` : ''}\nこの操作は取り消せません。`
+      : `削除します。${unsaved ? '\n※ まだ写真アプリに保存していません。' : ''}\nこの操作は取り消せません。`;
+    if (!confirm(msg)) return;
+    // 削除後は、今の位置に近い残りの写真を表示して選別を続けられるようにする
     const idx = items.findIndex((x) => x.id === viewerItem.id);
-    await deleteItems([viewerItem]); renderGallery();
-    const next = items[idx] || items[idx - 1];
-    if (next) openViewer(next, items[idx] ? 1 : -1); else closeViewer();
+    const gone = new Set(l.map((i) => i.id));
+    const rest = items.filter((x) => !gone.has(x.id));
+    let next = null;
+    for (let i = idx; i < items.length && !next; i++) if (!gone.has(items[i].id)) next = items[i];
+    for (let i = idx - 1; i >= 0 && !next; i--) if (!gone.has(items[i].id)) next = items[i];
+    await deleteItems(l); selected.clear(); selecting = false; renderGallery();
+    if (next && rest.length) openViewer(next, 1); else closeViewer();
   };
 
   // ================= 設定画面 =================

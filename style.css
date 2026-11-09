@@ -164,3 +164,10 @@ html.rotm90 #app, html.rotm90 .sheet, html.rotm90 #viewer { padding: env(safe-ar
 #lensRow button, #zoomBadge { transition: transform .25s; }
 #vPos { grid-column: 1; justify-self: start; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
 #vBody { touch-action: pan-y pinch-zoom; }
+
+/* ビューアの選択チェック */
+#vPick { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 20px; font-size: 15px; font-weight: 600; color: var(--fg); background: rgba(255,255,255,.1); }
+#vPick .box { width: 24px; height: 24px; border-radius: 50%; border: 2px solid rgba(255,255,255,.8); display: inline-flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; }
+#vPick.on .box { background: var(--accent); border-color: var(--accent); color: #000; }
+#vPick.on .box::after { content: "✓"; font-weight: 800; }
+#vPick.on { background: rgba(255,214,10,.15); }
