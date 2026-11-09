@@ -11,7 +11,7 @@
   }
   setAudioSession('ambient');
 
-  const APP_VERSION = 16;
+  const APP_VERSION = 17;
   // ================= 設定 =================
   const DEFAULTS = {
     saveMode: 'batch', saveTarget: 'auto', quality: '0.95', location: true, grid: false, level: false, mirror: false,
@@ -163,7 +163,8 @@
   }
   function pickDeviceId() {
     const kind = S.facing === 'front' ? 'front' : (S.lens || 'wide');
-    const d = devices.find((x) => x.kind === kind) || (S.facing !== 'front' && devices.find((x) => x.kind === 'wide'));
+    const torchD = kind === 'wide' && S.torchDev && devices.find((x) => x.id === S.torchDev);
+    const d = torchD || devices.find((x) => x.kind === kind) || (S.facing !== 'front' && devices.find((x) => x.kind === 'wide'));
     return d ? d.id : null;
   }
   const isFront = () => {
@@ -278,10 +279,54 @@
 
   // Androidのブラウザはライト対応(torch)を後から報告したり報告しなかったりするので、
   // 報告がなくても試してみる。失敗したら false を返す
+  let torchErr = '', photoCapsReady = null;
   async function setTorch(on) {
     if (!track) return false;
-    try { await track.applyConstraints({ advanced: [{ torch: on }] }); return true; }
-    catch { return false; }
+    // Android Chromeは ImageCapture で写真機能を初期化するまでライト制御が効かない端末がある
+    if (window.ImageCapture && photoCapsReady !== track) {
+      try { await new ImageCapture(track).getPhotoCapabilities(); } catch {}
+      photoCapsReady = track;
+      caps = (track.getCapabilities && track.getCapabilities()) || caps;
+    }
+    for (let i = 0; i < 2; i++) {
+      try {
+        await track.applyConstraints({ advanced: [{ torch: on }] });
+        const st = track.getSettings ? track.getSettings() : {};
+        if (!on || st.torch === undefined || st.torch === true) { torchErr = ''; return true; }
+        torchErr = 'settings.torch=false';
+      } catch (e) { torchErr = `${e.name}: ${e.message}`; }
+      await sleep(400);
+    }
+    return false;
+  }
+  // 今のカメラでライトが使えないとき、ライト付きの背面カメラを探して切り替える
+  async function findTorchCamera() {
+    await refreshDevices();
+    const backs = devices.filter((d) => d.kind && d.kind !== 'front');
+    const cur = track && track.getSettings && track.getSettings().deviceId;
+    for (const d of backs) {
+      if (d.id === cur) continue;
+      stopStream();
+      let s;
+      try {
+        s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: d.id } }, audio: false });
+        const t = s.getVideoTracks()[0];
+        if (window.ImageCapture) { try { await new ImageCapture(t).getPhotoCapabilities(); } catch {} }
+        const c = t.getCapabilities ? t.getCapabilities() : {};
+        if (c.torch) { s.getTracks().forEach((x) => x.stop()); return d.id; }
+      } catch {}
+      if (s) s.getTracks().forEach((x) => x.stop());
+    }
+    return null;
+  }
+  async function ensureTorch() {
+    if (await setTorch(true)) return true;
+    if (caps.torch) return false;
+    showToast(null, 'ライト付きのカメラを探しています…');
+    const id = await findTorchCamera();
+    if (id) { S.torchDev = id; S.lens = 'wide'; saveSettings(); await startCamera(); hideToast(); return setTorch(true); }
+    await startCamera();
+    return false;
   }
   // 背面カメラでは常にフラッシュボタンを出す（前面は画面フラッシュ。ビデオ時の前面は不可）
   const flashAvailable = () => (isFront() ? S.mode === 'photo' : true);
@@ -794,7 +839,8 @@
       `カメラ: ${track ? track.label || '-' : '-'}`,
       `映像解像度: ${video.videoWidth}×${video.videoHeight}${s.frameRate ? ` / ${Math.round(s.frameRate)}fps` : ''}`,
       `ズーム: ${hwZoom ? `光学/デジタル（${caps.zoom.min}〜${caps.zoom.max}×）` : 'デジタル（切り抜き）'}`,
-      `ライト: ${caps.torch ? '対応' : isFront() ? '画面フラッシュ' : '非対応'}`,
+      `ライト: ${caps.torch ? '対応' : isFront() ? '画面フラッシュ' : '非対応'}${torchErr ? `（${torchErr}）` : ''}`,
+      `カメラ一覧: ${devices.map((d) => `${d.label || '?'}[${d.kind || '-'}]`).join(' / ') || '-'}`,
       `色空間: ${P3 ? 'Display P3' : canvas ? 'sRGB' : '撮影時に判定'}`,
       `フィルタ処理: ${CTX_FILTER ? 'GPU' : 'ソフトウェア'}`,
       `録画形式: ${codecLabel(pickMime())}`,
@@ -804,16 +850,20 @@
   }
 
   // ================= イベント =================
+  let flashBusy = false;
   $('#btnFlash').onclick = async () => {
+    if (flashBusy) return;
     S.flash = !S.flash; saveSettings(); updateTopbar();
     if (isFront()) return;
-    if (S.mode === 'video') { const ok = await setTorch(S.flash); if (S.flash && !ok) torchNotice(); }
-    else if (S.flash && !caps.torch) {
-      // 対応が不明な端末は一瞬点灯を試して確認
-      const ok = await setTorch(true); await setTorch(false); if (!ok) torchNotice();
-    }
+    if (!S.flash) { if (S.mode === 'video') setTorch(false); return; }
+    flashBusy = true;
+    try {
+      const ok = await ensureTorch();
+      if (S.mode !== 'video') await setTorch(false); // 写真は撮影時だけ点灯
+      if (!ok) { S.flash = false; saveSettings(); updateTopbar(); torchNotice(); }
+    } finally { flashBusy = false; updateInfo(); }
   };
-  function torchNotice() { showToast(null, 'この端末のブラウザではライトを点灯できませんでした'); }
+  function torchNotice() { showToast(null, `この端末のブラウザではライトを点灯できませんでした（${torchErr || 'torch非対応'}）`); }
   $('#btnTimer').onclick = () => { S.timer = S.timer === 0 ? 3 : S.timer === 3 ? 10 : 0; saveSettings(); updateTopbar(); };
   $('#btnAspect').onclick = () => {
     const order = ['4:3', '16:9', '1:1'];
